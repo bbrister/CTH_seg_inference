@@ -1,0 +1,3 @@
+[submodule "CTH_seg_common"]
+	path = CTH_seg_common
+	url = https://github.com/bbrister/CTH_seg_common.git
