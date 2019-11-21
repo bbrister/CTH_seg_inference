@@ -383,10 +383,14 @@ def inference_main(pb_path, params_path, nii_in_path, nii_out_path, resolution=N
 
     # Call the next level entry point
     inference_main_with_image(pb_path, params_path, vol, units, nii_out_path, 
-        resolution, class_idx)
+        nii_affine=nii_in.affine, 
+        nii_header=nii_in.header, 
+        resolution=resolution, 
+        class_idx=class_idx
+    )
 
 def inference_main_with_image(pb_path, params_path, vol, units, nii_out_path, 
-        resolution=None, class_idx=None): 
+        nii_affine=None, nii_header=None, resolution=None, class_idx=None): 
     """
         Entry point if the images are already loaded in some other way. 
     """
@@ -418,7 +422,11 @@ def inference_main_with_image(pb_path, params_path, vol, units, nii_out_path,
         )
 
     # Save the result as a Nifti file
-    nii_out = nib.Nifti1Image(vol_out, nii_in.affine, header=hdr)
+    nii_out = nib.Nifti1Image(
+        vol_out, 
+        nii_affine if nii_affine is not None else np.eye(4), # affine=None gives unintuitive results
+        header=nii_header
+    )
     nib.save(nii_out, nii_out_path)
 
 if __name__ == "__main__":
