@@ -1,5 +1,4 @@
 import numpy as np
-import nibabel as nib
 import os
 import sys
 import cPickle as pickle
@@ -375,14 +374,25 @@ def inference_main(pb_path, params_path, nii_in_path, nii_out_path, resolution=N
         Entry point for other python scripts.
     """
 	
+    import nibabel as nib
 
     # Read the Nifti file
     nii_in = nib.load(nii_in_path)
     vol = nii_in.get_data().astype(np.float32)
     hdr = nii_in.header
+    units = np.abs(np.diag(hdr.get_base_affine())[:3])
+
+    # Call the next level entry point
+    inference_main_with_image(pb_path, params_path, vol, units, nii_out_path, 
+        resolution, class_idx): 
+
+def inference_main_with_image(pb_path, params_path, vol, units, nii_out_path, 
+        resolution=None, class_idx=None): 
+    """
+        Entry point if the images are already loaded in some other way. 
+    """
 
     # Compute resizing info
-    units = np.abs(np.diag(hdr.get_base_affine())[:3])
     scale_factors = units / resolution if resolution is not None else None
     if np.any(units == 0.0) and resolution is not None:
         raise ValueError("Read invalid units: (%f, %f, %f)" % tuple(units)) 
