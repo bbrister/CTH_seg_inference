@@ -384,7 +384,7 @@ def inference_main(pb_path, params_path, nii_in_path, nii_out_path, resolution=N
 
     # Call the next level entry point
     inference_main_with_image(pb_path, params_path, vol, units, nii_out_path, 
-        resolution, class_idx): 
+        resolution, class_idx)
 
 def inference_main_with_image(pb_path, params_path, vol, units, nii_out_path, 
         resolution=None, class_idx=None): 
