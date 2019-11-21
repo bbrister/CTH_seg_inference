@@ -1,4 +1,5 @@
 import numpy as np
+import nibabel as nib
 import os
 import sys
 import cPickle as pickle
@@ -374,8 +375,6 @@ def inference_main(pb_path, params_path, nii_in_path, nii_out_path, resolution=N
         Entry point for other python scripts.
     """
 	
-    import nibabel as nib
-
     # Read the Nifti file
     nii_in = nib.load(nii_in_path)
     vol = nii_in.get_data().astype(np.float32)
