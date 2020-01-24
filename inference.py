@@ -370,27 +370,34 @@ def main():
 
     inference_main(pb_path, params_path, nii_in_path, nii_out_path, resolution, class_idx)
 
+def read_nifti(path):
+    """
+        Utility function to read a Nifti file
+    """
+
+    nii = nib.load(path)
+    vol = nii.get_data().astype(np.float32)
+    units = np.abs(np.diag(hdr.get_base_affine())[:3])
+
+    return vol, units, nii
+
 def inference_main(pb_path, params_path, nii_in_path, nii_out_path, resolution=None, class_idx=None):
     """
         Entry point for other python scripts.
     """
 	
     # Read the Nifti file
-    nii_in = nib.load(nii_in_path)
-    vol = nii_in.get_data().astype(np.float32)
-    hdr = nii_in.header
-    units = np.abs(np.diag(hdr.get_base_affine())[:3])
+    vol, units, nii = read_nifti(path)
 
     # Call the next level entry point
     inference_main_with_image(pb_path, params_path, vol, units, nii_out_path, 
-        nii_affine=nii_in.affine, 
-        nii_header=nii_in.header, 
+        nii=nii, 
         resolution=resolution, 
         class_idx=class_idx
     )
 
 def inference_main_with_image(pb_path, params_path, vol, units, nii_out_path, 
-        nii_affine=None, nii_header=None, resolution=None, class_idx=None): 
+        nii=None, resolution=None, class_idx=None): 
     """
         Entry point if the images are already loaded in some other way. 
     """
@@ -424,8 +431,8 @@ def inference_main_with_image(pb_path, params_path, vol, units, nii_out_path,
     # Save the result as a Nifti file
     nii_out = nib.Nifti1Image(
         vol_out, 
-        nii_affine if nii_affine is not None else np.eye(4), # affine=None gives unintuitive results
-        header=nii_header
+        nii.affine if nii is not None else np.eye(4), # affine=None gives unintuitive results
+        header=nii.header
     )
     nib.save(nii_out, nii_out_path)
 
