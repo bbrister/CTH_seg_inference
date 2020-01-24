@@ -377,7 +377,7 @@ def read_nifti(path):
 
     nii = nib.load(path)
     vol = nii.get_data().astype(np.float32)
-    units = np.abs(np.diag(hdr.get_base_affine())[:3])
+    units = np.abs(np.diag(nii.header.get_base_affine())[:3])
 
     return vol, units, nii
 
