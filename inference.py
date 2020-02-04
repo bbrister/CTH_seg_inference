@@ -432,7 +432,7 @@ def inference_main_with_image(pb_path, params_path, vol, units, nii_out_path,
     nii_out = nib.Nifti1Image(
         vol_out, 
         nii.affine if nii is not None else np.eye(4), # affine=None gives unintuitive results
-        header=nii.header
+        header=nii.header if nii is not None else None
     )
     nib.save(nii_out, nii_out_path)
 
