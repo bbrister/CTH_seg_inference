@@ -2,7 +2,7 @@ import numpy as np
 import nibabel as nib
 import os
 import sys
-import cPickle as pickle
+import pickle
 import multiprocessing
 import math
 
@@ -12,10 +12,12 @@ try:
     tf.disable_v2_behavior()
 except:
     import tensorflow as tf
+    
 from tensorflow.python.platform import gfile
 
-from CTH_seg_common import data
 from pyCudaImageWarp import augment3d, cudaImageWarp, scipyImageWarp
+
+from .CTH_seg_common import data
 
 """
 A class which uses the Tensorflow model in inference-only mode.
@@ -364,9 +366,9 @@ def main():
     except IndexError:
         resolution = None # No resampling
     try:
-	class_idx = sys.argv[6] # In [0, ..., num_class - 1]. Otherwise returns argmax
+        class_idx = sys.argv[6] # In [0, ..., num_class - 1]. Otherwise returns argmax
     except IndexError:
-	class_idx = None # Use argmax
+        class_idx = None # Use argmax
 
     inference_main(pb_path, params_path, nii_in_path, nii_out_path, resolution, class_idx)
 
@@ -385,7 +387,7 @@ def inference_main(pb_path, params_path, nii_in_path, nii_out_path, resolution=N
     """
         Entry point for other python scripts.
     """
-	
+        
     # Read the Nifti file
     vol, units, nii = read_nifti(path)
 
@@ -413,9 +415,9 @@ def inference_main_with_image(pb_path, params_path, vol, units, nii_out_path,
 
     # Condense to an output volume
     if class_idx is None:
-	vol_out = np.argmax(pred, axis=3)
+        vol_out = np.argmax(pred, axis=3)
     else:
-	vol_out = pred[class_idx]
+        vol_out = pred[class_idx]
 
     # Interpolate the output predictions, if needed
     if scale_factors is not None:
