@@ -17,7 +17,7 @@ from tensorflow.python.platform import gfile
 
 from pyCudaImageWarp import augment3d, cudaImageWarp, scipyImageWarp
 
-from .CTH_seg_common import data
+from CTH_seg_common import data
 
 """
 A class which uses the Tensorflow model in inference-only mode.
@@ -33,7 +33,7 @@ class Inferer:
         
         # Unpack the network parameters
         with open(params_path, 'rb') as f:
-            self.params = pickle.load(f)
+            self.params = pickle.load(f, encoding="latin1")
 
         # Load the frozen graph
         with gfile.FastGFile(pb_path,'rb') as f:
@@ -158,7 +158,7 @@ def tile_inference(vol, vol_ph, prob_ph, params, session, feed_dict={},
     num_batches = int(math.ceil(float(num_tiles) / batch_size))
     batch_inds = [
         range(batch_size * i, min(batch_size * (i + 1), num_tiles)) 
-            for i in xrange(num_batches)
+            for i in range(num_batches)
     ]
 
     # Run the model on overlapping tiles
@@ -252,7 +252,7 @@ def tile_inference(vol, vol_ph, prob_ph, params, session, feed_dict={},
                 
         # Finish pre-processing, assign the inputs
         this_batch_size = len(cropSlices)
-        for i in xrange(this_batch_size):
+        for i in range(this_batch_size):
             # Get the volume
             tile_vol = np.zeros(params['data_shape'])
             for c in range(num_channels):
@@ -294,7 +294,7 @@ def tile_inference(vol, vol_ph, prob_ph, params, session, feed_dict={},
         assert(np.array_equal(tile_preds.shape[-ndim - 1:-1], crop_dims))
 
         # Accumulate the output predictions, update the counts
-        for i in xrange(this_batch_size):
+        for i in range(this_batch_size):
             tileSlice = tileSlices[i]
             cropSlice = cropSlices[i]
             pred[cropSlice] += tile_preds[i].squeeze()[tileSlice]
@@ -389,7 +389,7 @@ def inference_main(pb_path, params_path, nii_in_path, nii_out_path, resolution=N
     """
         
     # Read the Nifti file
-    vol, units, nii = read_nifti(path)
+    vol, units, nii = read_nifti(nii_in_path)
 
     # Call the next level entry point
     inference_main_with_image(pb_path, params_path, vol, units, nii_out_path, 
