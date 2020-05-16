@@ -33,7 +33,11 @@ class Inferer:
         
         # Unpack the network parameters
         with open(params_path, 'rb') as f:
-            self.params = pickle.load(f, encoding="latin1")
+            try: 
+                self.params = pickle.load(f)
+            except UnicodeDecodeError:
+                # Python2-pickled file
+                self.params = pickle.load(f, encoding="latin1")
 
         # Load the frozen graph
         with gfile.FastGFile(pb_path,'rb') as f:
