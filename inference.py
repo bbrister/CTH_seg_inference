@@ -6,8 +6,14 @@ import pickle
 import multiprocessing
 import math
 
-from .CTH_seg_common import data
 from pyCudaImageWarp import augment3d, cudaImageWarp, scipyImageWarp
+
+try:
+    # For module mode
+    from .CTH_seg_common import data
+except ImportError:
+    # For script mode
+    from CTH_seg_common import data
 
 # Ensure that Tensorflow has not yet been imported
 def tf_guard():
@@ -52,7 +58,7 @@ class Inferer:
         from tensorflow.python.client import device_lib
 
         # Start a new graph. This will not necessarily protect us against the
-        # new graph having tensors of the same name. Use isolate_inference for
+        # new graph having tensors of the same name. Use IsolatedInferrer for
         # this.
         with tf.Graph().as_default():
             
@@ -554,8 +560,8 @@ def inference_main_with_image(pb_path, params_path, vol, units, nii_out_path,
         raise ValueError("Read invalid units: (%f, %f, %f)" % tuple(units)) 
 
     # Run inference in a separate process
-    pred, loss = isolate_inference(pb_path, params_path, vol, 
-        scale_factors=scale_factors)[0:2]
+    inferer = IsolatedInferer(pb_path, params_path)
+    pred, loss = inferer.tile_inference(vol, scale_factors=scale_factors)[0:2]
 
     # Condense to an output volume
     if class_idx is None:
