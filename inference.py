@@ -15,6 +15,14 @@ except ImportError:
     # For script mode
     from CTH_seg_common import data
 
+def getWarpApi(api):
+    # Choose the preprocessing API
+    warpApiMap = {
+            'cuda': cudaImageWarp,
+            'scipy': scipyImageWarp
+    }
+    return warpApiMap[api]
+
 # Ensure that Tensorflow has not yet been imported
 def tf_guard():
     # Check that Tensorflow has not yet been imported! It's badly behaved!
@@ -24,6 +32,19 @@ def tf_guard():
         return;
 
     raise ValueError('Must not import tensorflow prior to creating an Inferer!')
+
+# Import Tensorflow if it hasn't yet. Return the package
+def get_tf():
+    try:
+        return tf
+    except:
+        try:
+            # Compatibility with TF 2.0--this is TF 1 code
+            import tensorflow.compat.v1 as tf
+            tf.disable_v2_behavior()
+        except:
+            import tensorflow as tf
+        return tf
 
 # Get the dtype and shape of a batch, given a list of tensors
 def __batch_info__(tensorList):
@@ -46,14 +67,9 @@ class Inferer:
                 params_path - Path to the .pkl meta-parameter file
         """
 
-        # Import tensorflow.
+        # Import Tensorflow for the first time.
         tf_guard()
-        try:
-            # Compatibility with TF 2.0--this is TF 1 code
-            import tensorflow.compat.v1 as tf
-            tf.disable_v2_behavior()
-        except:
-            import tensorflow as tf
+        tf = get_tf()
         from tensorflow.python.platform import gfile
         from tensorflow.python.client import device_lib
 
@@ -131,8 +147,8 @@ def tile_inference(vol, vol_ph_list, prob_ph, params, session, feed_dict={},
         Run inference, using cropping and tiling to cover the whole image
         Inputs:
             vol - the image the volume
-            vol_ph_list - a list of Tensorflow placeholders for the image data. If this
-                has only one element, vol_ph[0] is the batch dimension. (List
+            vol_ph_list - a list of Tensorflow placeholders for the image data.
+                len(vol_ph) is the batch dimension. (List
                 processing is needed for changing the number of GPUs at 
                 runtime.)
             prob_ph - a Tensorflow placeholder for the output
@@ -156,6 +172,9 @@ def tile_inference(vol, vol_ph_list, prob_ph, params, session, feed_dict={},
         returns the preprocessed image, assembled from tiles
     """
 
+    # Get TF
+    tf = get_tf()
+
     # Process parameters
     if labels_ph is None and voronoi_ph is not None:
         raise ValueError('Must provide labels_ph to use voronoi_ph')
@@ -163,17 +182,8 @@ def tile_inference(vol, vol_ph_list, prob_ph, params, session, feed_dict={},
     # Get the batch size of the network
     batch_size = int(prob_ph.shape[0])
 
-    # Process the input volume placeholders. If there's only one, split it
-    # into a new list
-    if len(vol_ph_list) < 2:
-        vol_ph_list = tf.split(vol_ph_list[0], batch_size, 0)
-
     # Choose the preprocessing API
-    warpApiMap = {
-            'cuda': cudaImageWarp,
-            'scipy': scipyImageWarp
-    }
-    warpApi = warpApiMap[api]
+    warpApi = getWarpApi(api)
 
     # Do no scaling by default
     if scale_factors is None:
@@ -569,16 +579,20 @@ def inference_main_with_image(pb_path, params_path, vol, units, nii_out_path,
     else:
         vol_out = pred[class_idx]
 
-    # Interpolate the output predictions, if needed
+    # Interpolate the output predictions, if needed.
     if scale_factors is not None:
         A = np.zeros((3, 4))
         A[:, 0:3] = np.diag(scale_factors)
-        vol_out = cudaImageWarp.warp(
+        interpRoutine = lambda api: getWarpApi(api).warp(
             vol_out,
             A=A,
             shape=vol.shape,
             interp='nearest'
         )
+        try:
+            vol_out = interpRoutine('cuda')
+        except ValueError:
+            vol_out = interpRoutine('scipy')
 
     # Save the result as a Nifti file
     nii_out = nib.Nifti1Image(
