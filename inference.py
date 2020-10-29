@@ -94,6 +94,8 @@ class Inferer:
             # Query the available GPUs
             local_device_protos = device_lib.list_local_devices()
             gpuNames = [x.name for x in local_device_protos if x.device_type == 'GPU']
+            if len(gpuNames) < 1:
+                raise OSError("Failed to find any GPUs!")
 
             # Initialize on each gpu
             xList = []
@@ -454,8 +456,8 @@ def __child_main__(pb_path, params_path, inputQ, outputQ):
 
             # Process the request
             print('Processing (child)')
-            outputs = inferer.tile_inference(vol, scale_factors, device=device, 
-                    api=api)
+            outputs = inferer.tile_inference(vol, scale_factors=scale_factors, 
+                device=device, api=api)
 
             # Return the output
             outputQ.put(outputs)
