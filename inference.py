@@ -59,7 +59,7 @@ def __batch_info__(tensorList):
 A class which uses the Tensorflow model in inference-only mode.
 """
 class Inferer:
-    def __init__(self, pb_path, params_path):
+    def __init__(self, pb_path, params_path, with_shape_hint=False):
         """
             Loads the model from a file.
             Arguments:
@@ -98,23 +98,27 @@ class Inferer:
                 raise OSError("Failed to find any GPUs!")
 
             # Initialize on each gpu
-            xList = []
-            probList = []
+            nodes = []
             for gpuName in gpuNames:
                 with tf.device(gpuName):
                     device_name, device_num = gpuName.strip('/device:').strip('/').split(':')
                     with tf.name_scope(device_name + device_num) as scope:
 
+                        # Form the desired nodes list
+                        desired_nodes=['X:0', 'prob:0']
+                        if with_shape_hint:
+                            desired_nodes += ['shape_hint:0']
+
                         # Initialize the graph, extract the input and output nodes
-                        X, prob = tf.import_graph_def(
+                        nodes.append(tf.import_graph_def(
                             graph_def,
                             name='',
-                            return_elements=['X:0', 'prob:0']
-                        )
+                            return_elements=desired_nodes
+                        ))
 
-                xList.append(X)
-                probList.append(prob)
-            self.xList = xList
+            unzipNodes = zip(*nodes)
+            self.xList, probList = unzipNodes[0:2] 
+            self.shapeHintPList = unzipNodes[3] if withShapeHint else None
 
             # Create a tensor for the full (batch) output
             self.prob = tf.concat(probList, axis=0)
@@ -130,17 +134,20 @@ class Inferer:
             self.session = tf.Session(config=config)
 
     def tile_inference(self, vol, labels=None, scale_factors=None, 
-        oob_image_val=0, oob_label=0, device=None, api='cuda'):
+        shape_hint=None, oob_image_val=0, oob_label=0, device=None, api='cuda'):
         """
             Calls tile_inference() with the right Tensorflow objects.
         """
         return tile_inference(vol, self.xList, self.prob, self.params, 
                 self.session, labels=labels, scale_factors=scale_factors, 
+                shape_hint_list=shape_hint,
+                shape_hint_ph_list=self.shapeHintList,
                 device=device, api=api)
 
 def tile_inference(vol, vol_ph_list, prob_ph, params, session, feed_dict={},
         labels=None, labels_ph=None, weights_ph=None, loss_ph=None, 
         voronoi=None, voronoi_ph=None, num_objects_ph=None,
+        shape_hint=None, shape_hint_ph_list=None,
         fuzzy_labels=None, fuzzy_labels_ph=None,
         fuzzy_weights=None, fuzzy_weights_ph=None,
         scale_factors=None, oob_image_val=0, oob_label=0, device=None, 
@@ -268,6 +275,9 @@ def tile_inference(vol, vol_ph_list, prob_ph, params, session, feed_dict={},
             # Skip this tile if it's completely masked out
             if labels is not None and not np.any(valid[cropSlice]): continue
 
+            # Skip this tile if the shape hint is empty
+            if shape_hint_ph_list is not None and not np.any(shape_hint[cropSlice]): continue
+
             # Record the tile dimensions
             cropSlices.append(cropSlice)
             tileSlices.append(tileSlice)
@@ -316,6 +326,17 @@ def tile_inference(vol, vol_ph_list, prob_ph, params, session, feed_dict={},
                     device=device
                 )
 
+            # Start warping the shape hint, if any
+            if shape_hint_ph_list is not None:
+                warpApi.push(
+                    shape_hint,
+                    A=warpAffine,
+                    interp='nearest',
+                    shape=crop_dims,
+                    oob=0,
+                    device=device
+                )
+
             # Start warping the fuzzies, if any
             if fuzzy_labels_ph is not None:
                 fuzzy_channels = 1 if fuzzy_weights.ndim < 4 else fuzzy_weights.shape[3]
@@ -341,6 +362,7 @@ def tile_inference(vol, vol_ph_list, prob_ph, params, session, feed_dict={},
         # Initialize the feed dict
         init_list = [(labels_ph, oob_label), 
             (weights_ph, None), (voronoi_ph, None), (num_objects_ph, None),
+            (shape_hint_ph_list, None),
             (fuzzy_weights_ph, None), (fuzzy_labels_ph, None)]
         for vol_ph in vol_ph_list:
             init_list.append((vol_ph, oob_image_val))
@@ -377,6 +399,11 @@ def tile_inference(vol, vol_ph_list, prob_ph, params, session, feed_dict={},
                     warpApi.pop(), tile_labels >= 0)
                 feed_dict[voronoi_ph][i] = tile_voronoi
                 feed_dict[num_objects_ph][i] = tile_num_objects
+        
+            # Optionally assign the shape hint. 
+            if shape_hint_ph_list is not None:
+                tile_shape_hint = warpApi.pop()
+                feed_dict[shape_hint_ph_list[i]] = tile_shape_hint
             
             # Optionally get fuzzies
             if fuzzy_weights_ph is not None:
@@ -451,13 +478,13 @@ def __child_main__(pb_path, params_path, inputQ, outputQ):
                 print('Exiting (child)')
                 return
             else:
-                vol, scale_factors, device, api = input_args
+                vol, scale_factors, shape_hint, device, api = input_args
 
 
             # Process the request
             print('Processing (child)')
             outputs = inferer.tile_inference(vol, scale_factors=scale_factors, 
-                device=device, api=api)
+                shape_hint=shape_hint, device=device, api=api)
 
             # Return the output
             outputQ.put(outputs)
@@ -490,8 +517,9 @@ class IsolatedInferer:
         Runs inference in the child process, returning the result. Recommend 'scipy'
         preprocessing APi to avoid memory issues.
     """
-    def tile_inference(self, vol, scale_factors=None, device=None, api='scipy'):
-        self.inputQ.put((vol, scale_factors, device, api))
+    def tile_inference(self, vol, scale_factors=None, shape_hint=None, 
+                device=None, api='scipy'):
+        self.inputQ.put((vol, scale_factors, shape_hint, device, api))
         print('Put arguments (parent)')
         outputs = self.outputQ.get()
         print('Received outputs (parent)')
@@ -545,23 +573,26 @@ def read_nifti(path):
 
     return vol, units, nii
 
-def inference_main(pb_path, params_path, nii_in_path, nii_out_path, resolution=None, class_idx=None):
+def inference_main(pb_path, params_path, nii_in_path, nii_out_path, resolution=None, 
+        class_idx=None, shape_hint_path=None):
     """
         Entry point for other python scripts.
     """
         
-    # Read the Nifti file
+    # Read the Nifti file(s)
     vol, units, nii = read_nifti(nii_in_path)
+    shape_hint = read_nifti(shape_hint_path) if shape_hint_path is not None else None
 
     # Call the next level entry point
     inference_main_with_image(pb_path, params_path, vol, units, nii_out_path, 
         nii=nii, 
         resolution=resolution, 
-        class_idx=class_idx
+        class_idx=class_idx,
+        shape_hint=shape_hint
     )
 
 def inference_main_with_image(pb_path, params_path, vol, units, nii_out_path, 
-        nii=None, resolution=None, class_idx=None): 
+        nii=None, resolution=None, class_idx=None, shape_hint=None): 
     """
         Entry point if the images are already loaded in some other way. 
     """
@@ -573,7 +604,8 @@ def inference_main_with_image(pb_path, params_path, vol, units, nii_out_path,
 
     # Run inference in a separate process
     inferer = IsolatedInferer(pb_path, params_path)
-    pred, loss = inferer.tile_inference(vol, scale_factors=scale_factors)[0:2]
+    pred, loss = inferer.tile_inference(vol, scale_factors=scale_factors, 
+        shape_hint=shape_hint)[0:2]
 
     # Condense to an output volume
     if class_idx is None:
