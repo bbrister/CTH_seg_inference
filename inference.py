@@ -510,29 +510,31 @@ def main():
     """
     Loads the network and performs inference on a single image.
     Usage: 
-        python inference.py [network.pb] [params.pkl] [input.nii.gz] [output.nii.gz] [resolution] [class_idx]
+        python inference.py [network.pb] [params.pkl] [input.nii.gz] [output.nii.gz] [out_units] 
 
-    If resolution is provided, resamples the input and output to that 
-        resolution. Otherwise, no resampling is performed.
-        
-    If class_idx is provided, saves the probability of that class. Otherwise, 
-        returns a label map via argmax.
+    If out_units are provided, resamples the input and output to that 
+        resolution. Otherwise, no resampling is performed. The argument is 
+        either a single number or a list of three numbers separated by spaces.
+        If a single number is given, that resolution is used for all dimensions.
     """
 
     pb_path = sys.argv[1]
     params_path = sys.argv[2]
     nii_in_path = sys.argv[3]
     nii_out_path = sys.argv[4]
-    try:
-        resolution = float(sys.argv[5]) # Resample to this resolution
-    except IndexError:
-        resolution = None # No resampling
-    try:
-        class_idx = sys.argv[6] # In [0, ..., num_class - 1]. Otherwise returns argmax
-    except IndexError:
-        class_idx = None # Use argmax
+    numArgs = len(sys.argv)
+    if numArgs == 6:
+        out_units = np.tile(float(sys.argv[5]), (3,)) # Resample to this isotropic resolution
+    elif numArgs == 7:
+        raise IndexError('Need to provide either 1 or 3 output units. Received 2')
+    elif numArgs == 8:
+        out_units = np.array([float(sys.argv[idx]) for idx in range(5, 8)])
+    elif numArgs == 9:
+        raise IndexError('Received %d argments. Max is 7' % (numArgs - 1))
+    else:
+        out_units = None # No resampling
 
-    inference_main(pb_path, params_path, nii_in_path, nii_out_path, resolution, class_idx)
+    inference_main(pb_path, params_path, nii_in_path, nii_out_path, out_units, class_idx)
 
 def read_nifti(path):
     """
@@ -545,31 +547,31 @@ def read_nifti(path):
 
     return vol, units, nii
 
-def inference_main(pb_path, params_path, nii_in_path, nii_out_path, resolution=None, class_idx=None):
+def inference_main(pb_path, params_path, nii_in_path, nii_out_path, out_units=None, class_idx=None):
     """
         Entry point for other python scripts.
     """
         
     # Read the Nifti file
-    vol, units, nii = read_nifti(nii_in_path)
+    vol, in_units, nii = read_nifti(nii_in_path)
 
     # Call the next level entry point
-    inference_main_with_image(pb_path, params_path, vol, units, nii_out_path, 
+    inference_main_with_image(pb_path, params_path, vol, in_units, nii_out_path, 
         nii=nii, 
-        resolution=resolution, 
+        out_units=out_units, 
         class_idx=class_idx
     )
 
-def inference_main_with_image(pb_path, params_path, vol, units, nii_out_path, 
-        nii=None, resolution=None, class_idx=None): 
+def inference_main_with_image(pb_path, params_path, vol, in_units, nii_out_path, 
+        nii=None, out_units=None, class_idx=None): 
     """
         Entry point if the images are already loaded in some other way. 
     """
 
     # Compute resizing info
-    scale_factors = units / resolution if resolution is not None else None
-    if np.any(units == 0.0) and resolution is not None:
-        raise ValueError("Read invalid units: (%f, %f, %f)" % tuple(units)) 
+    scale_factors = in_units / out_units if out_units is not None else None
+    if np.any(in_units == 0.0) and out_units is not None:
+        raise ValueError("Read invalid input units: (%f, %f, %f)" % tuple(in_units)) 
 
     # Run inference in a separate process
     inferer = IsolatedInferer(pb_path, params_path)
@@ -593,7 +595,7 @@ def inference_main_with_image(pb_path, params_path, vol, units, nii_out_path,
         )
         try:
             vol_out = interpRoutine('cuda')
-        except ValueError:
+        except ValueError: # Usually occurs when GPU runs out of memory
             vol_out = interpRoutine('scipy')
 
     # Save the result as a Nifti file
