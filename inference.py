@@ -534,7 +534,7 @@ def main():
     else:
         out_units = None # No resampling
 
-    inference_main(pb_path, params_path, nii_in_path, nii_out_path, out_units, class_idx)
+    inference_main(pb_path, params_path, nii_in_path, nii_out_path, out_units=out_units)
 
 def read_nifti(path):
     """
